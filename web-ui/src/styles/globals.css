@@ -465,6 +465,17 @@ body.kb-dependency-link-mode {
 	padding: 8px 12px;
 }
 
+.kb-hello-world-banner {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	border-bottom: 1px solid var(--color-divider);
+	background: linear-gradient(90deg, color-mix(in srgb, var(--color-accent) 18%, transparent), transparent);
+	color: var(--color-text-primary);
+	font-size: 13px;
+}
+
 .kb-navbar-tag {
 	margin-left: 8px;
 }
