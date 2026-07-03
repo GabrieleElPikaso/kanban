@@ -38,6 +38,8 @@ import {
 	listSdkProviderModels,
 	loginManagedOauthProvider,
 	type ManagedClineOauthProviderId,
+	migrateSdkLegacyProviderIds,
+	normalizeSdkProviderId,
 	refreshManagedOauthCredentials,
 	SDK_DEFAULT_MODEL_ID,
 	SDK_DEFAULT_PROVIDER_ID,
@@ -463,6 +465,30 @@ export function createClineProviderService() {
 	const getProviderSettingsSummary = (): RuntimeClineProviderSettings =>
 		toProviderSettingsSummary(getSelectedProviderSettings());
 
+	// Bring persisted provider state in line with the llms registry exactly once
+	// per process: rewrite settings stored under legacy provider-id aliases
+	// ("openai" → "openai-native") to canonical ids. Memoized so concurrent
+	// callers share a single run.
+	let customProvidersLoadPromise: Promise<void> | null = null;
+	const ensureCustomProvidersLoadedOnce = (): Promise<void> => {
+		if (!customProvidersLoadPromise) {
+			customProvidersLoadPromise = (async () => {
+				migrateSdkLegacyProviderIds();
+			})().catch((error) => {
+				// Reset so a later caller can retry after a transient failure.
+				customProvidersLoadPromise = null;
+				LOGGER.log("Failed to migrate legacy provider ids.", {
+					severity: "warn",
+					errorMessage: toErrorMessage(error),
+				});
+			});
+		}
+		return customProvidersLoadPromise;
+	};
+
+	// Best-effort eager load at startup so providers are ready before the first launch.
+	void ensureCustomProvidersLoadedOnce();
+
 	// Dedup concurrent fetchSdkClineAccountProfile calls (e.g. balance + orgs on dialog open).
 	// Cached for 5s so back-to-back callers share a single network round-trip.
 	const PROFILE_CACHE_TTL_MS = 5_000;
@@ -793,7 +819,7 @@ export function createClineProviderService() {
 				);
 			}
 
-			const normalizedProviderId = selectedSettings.provider.trim().toLowerCase();
+			const normalizedProviderId = normalizeSdkProviderId(selectedSettings.provider);
 			if (!normalizedProviderId) {
 				throw new Error(
 					"No native Cline provider is configured. Open Settings, choose a provider, and then start the task again.",
@@ -871,7 +897,8 @@ export function createClineProviderService() {
 		},
 
 		async getProviderModels(providerId: string): Promise<RuntimeClineProviderModelsResponse> {
-			const normalizedProviderId = providerId.trim().toLowerCase();
+			await ensureCustomProvidersLoadedOnce();
+			const normalizedProviderId = normalizeSdkProviderId(providerId);
 			let providerModels =
 				normalizedProviderId.length > 0
 					? await listSdkProviderModels(normalizedProviderId)
