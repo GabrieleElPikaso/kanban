@@ -66,6 +66,7 @@ class FakeTerminalManager implements TerminalSessionService {
 			snapshot: "",
 			cols: 80,
 			rows: 24,
+			sequence: 0,
 		}),
 	);
 	recoverStaleSession = vi.fn(() => createSummary());
@@ -78,6 +79,12 @@ class FakeTerminalManager implements TerminalSessionService {
 	emitOutput(taskId: string, data: string): void {
 		for (const listener of this.listenersByTaskId.get(taskId) ?? []) {
 			listener.onOutput?.(Buffer.from(data, "utf8"));
+		}
+	}
+
+	emitExit(taskId: string, code: number | null, willAutoRestart: boolean): void {
+		for (const listener of this.listenersByTaskId.get(taskId) ?? []) {
+			listener.onExit?.(code, willAutoRestart);
 		}
 	}
 }
@@ -391,6 +398,55 @@ describe("createTerminalWebSocketBridge", () => {
 				resolve();
 			});
 		});
+	});
+
+	it("re-pushes the preserved final screen to a live viewer on a terminal exit", async () => {
+		// A viewer that watched the agent's TUI teardown live has already followed the
+		// stream out of the alternate screen and is showing only the thin post-exit
+		// remnant. On a non-restarting exit the server must re-push the mirror's
+		// preserved final screen so a Done/trash card shows the real session history.
+		const controlUrl = `${runtimeUrl}/api/terminal/control?taskId=${TASK_ID}&workspaceId=${WORKSPACE_ID}&clientId=client-a`;
+
+		const controlSocket = await openQueuedWebSocket(controlUrl);
+		await waitForControlMessage(controlSocket, (message) => message.type === "restore");
+		controlSocket.socket.send(JSON.stringify({ type: "restore_complete" }));
+
+		// The preserved final screen the mirror hands back after the session exits.
+		terminalManager.getRestoreSnapshot.mockResolvedValueOnce({
+			snapshot: "the actual conversation",
+			cols: 80,
+			rows: 24,
+			sequence: 5,
+		});
+
+		terminalManager.emitExit(TASK_ID, 143, false);
+
+		await waitForControlMessage(controlSocket, (message) => message.type === "exit");
+		const restore = await waitForControlMessage(
+			controlSocket,
+			(message) => message.type === "restore" && message.snapshot === "the actual conversation",
+		);
+		expect(restore.type).toBe("restore");
+
+		await closeSocket(controlSocket.socket);
+	});
+
+	it("does not re-push a restore when the exit will auto-restart", async () => {
+		const controlUrl = `${runtimeUrl}/api/terminal/control?taskId=${TASK_ID}&workspaceId=${WORKSPACE_ID}&clientId=client-a`;
+
+		const controlSocket = await openQueuedWebSocket(controlUrl);
+		await waitForControlMessage(controlSocket, (message) => message.type === "restore");
+		controlSocket.socket.send(JSON.stringify({ type: "restore_complete" }));
+
+		terminalManager.getRestoreSnapshot.mockClear();
+		terminalManager.emitExit(TASK_ID, 1, true);
+
+		await waitForControlMessage(controlSocket, (message) => message.type === "exit");
+		// Give any (incorrect) async re-restore a chance to fire before asserting.
+		await new Promise((resolve) => setTimeout(resolve, 30));
+		expect(terminalManager.getRestoreSnapshot).not.toHaveBeenCalled();
+
+		await closeSocket(controlSocket.socket);
 	});
 
 	it("broadcasts one PTY session to multiple viewers", async () => {

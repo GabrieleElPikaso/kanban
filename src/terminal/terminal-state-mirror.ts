@@ -108,6 +108,7 @@ export class TerminalStateMirror {
 			snapshot: this.serializeAddon.serialize(),
 			cols: this.terminal.cols,
 			rows: this.terminal.rows,
+			sequence,
 		};
 	}
 

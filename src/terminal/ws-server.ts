@@ -484,11 +484,43 @@ export function createTerminalWebSocketBridge({
 					summary,
 				});
 			},
-			onExit: (code) => {
+			onExit: (code, willAutoRestart) => {
 				sendControlMessage(ws, {
 					type: "exit",
 					code,
 				});
+				if (willAutoRestart) {
+					// A fresh session is about to stream new output over the same mirror,
+					// so leave this client on its live view rather than snapping it back.
+					return;
+				}
+				// The agent's TUI teardown (leaving the alternate screen) just streamed to
+				// this already-connected client, so its xterm now shows only the thin
+				// post-exit remnant (e.g. "Resume this session with: ..."), not the session
+				// history. Re-push the mirror's preserved final screen so a read-only
+				// Done/trash card shows the real scrollback. The snapshot was captured
+				// after the session exited, so it covers every chunk the viewer has seen
+				// or queued; drop any pending output so flushPendingOutput() replays
+				// nothing on top of it. (A client that instead attaches after exit
+				// already gets this via the connect-time restore.)
+				void terminalManager
+					.getRestoreSnapshot(taskId)
+					.then((snapshot) => {
+						if (viewerState.controlSocket !== ws || !snapshot || !snapshot.snapshot) {
+							return;
+						}
+						viewerState.restoreComplete = false;
+						viewerState.pendingOutputChunks = [];
+						sendControlMessage(ws, {
+							type: "restore",
+							snapshot: snapshot.snapshot,
+							cols: snapshot.cols,
+							rows: snapshot.rows,
+						});
+					})
+					.catch(() => {
+						// Best effort: on failure the client keeps its current post-exit view.
+					});
 			},
 		});
 		if (previousControlSocket && previousControlSocket !== ws) {
