@@ -17,6 +17,7 @@ interface AgentTerminalSessionControls {
 	containerRef: MutableRefObject<HTMLDivElement | null>;
 	isStopping: boolean;
 	lastError: string | null;
+	restoreHadContent: boolean | null;
 	stopTerminal: () => Promise<void>;
 }
 
@@ -24,6 +25,7 @@ export interface AgentTerminalPanelProps {
 	taskId: string;
 	workspaceId: string | null;
 	terminalEnabled?: boolean;
+	terminalReadOnly?: boolean;
 	summary: RuntimeTaskSessionSummary | null;
 	onSummary?: (summary: RuntimeTaskSessionSummary) => void;
 	onCommit?: () => void;
@@ -170,9 +172,11 @@ function AgentTerminalPanelLayout({
 	onSendAgentCommand,
 	isExpanded = false,
 	onToggleExpand,
+	terminalReadOnly = false,
 	sessionControls,
 }: AgentTerminalPanelProps & { sessionControls: AgentTerminalSessionControls }): ReactElement {
-	const { containerRef, lastError, isStopping, clearTerminal, stopTerminal } = sessionControls;
+	const { containerRef, lastError, isStopping, restoreHadContent, clearTerminal, stopTerminal } =
+		sessionControls;
 	const canStop = summary?.state === "running" || summary?.state === "awaiting_review";
 	const statusLabel = useMemo(() => describeState(summary), [summary]);
 	const statusTagStyle = useMemo(() => getStateTagStyle(summary), [summary]);
@@ -301,6 +305,14 @@ function AgentTerminalPanelLayout({
 						/>
 					</div>
 				</div>
+			) : terminalReadOnly ? (
+				<div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px" }}>
+					<span
+						className={`inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium ${statusTagColors.neutral}`}
+					>
+						Read-only
+					</span>
+				</div>
 			) : null}
 			<div style={{ flex: "1 1 0", minHeight: 0, overflow: "hidden", padding: "3px 1.5px 3px 3px" }}>
 				<div
@@ -308,6 +320,24 @@ function AgentTerminalPanelLayout({
 					className="kb-terminal-container"
 					style={{ height: "100%", width: "100%", background: terminalBackgroundColor }}
 				/>
+				{terminalReadOnly && restoreHadContent === false ? (
+					<div
+						className="text-text-secondary"
+						style={{
+							position: "absolute",
+							inset: "3px 1.5px 3px 3px",
+							display: "flex",
+							alignItems: "center",
+							justifyContent: "center",
+							textAlign: "center",
+							padding: 24,
+							fontSize: 13,
+							pointerEvents: "none",
+						}}
+					>
+						No terminal history available for this task. It ran before the runtime was last restarted.
+					</div>
+				) : null}
 			</div>
 			{lastError ? (
 				<div className="flex gap-2 rounded-none border-t border-status-red/30 bg-status-red/10 p-3 text-[13px] text-status-red">
@@ -345,6 +375,7 @@ export function AgentTerminalPanel(props: AgentTerminalPanelProps): ReactElement
 		taskId: props.taskId,
 		workspaceId: props.workspaceId,
 		enabled: props.terminalEnabled ?? true,
+		readOnly: props.terminalReadOnly ?? false,
 		onSummary: props.onSummary,
 		onConnectionReady: props.onConnectionReady,
 		autoFocus: props.autoFocus,

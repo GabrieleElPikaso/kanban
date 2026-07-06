@@ -3,13 +3,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { getTerminalThemeColors, useTheme } from "@/hooks/use-theme";
 import type { RuntimeTaskSessionSummary } from "@/runtime/types";
-import { disposePersistentTerminal, ensurePersistentTerminal } from "@/terminal/persistent-terminal-manager";
+import {
+	disposePersistentTerminal,
+	ensurePersistentTerminal,
+	type TerminalConnectionStatus,
+} from "@/terminal/persistent-terminal-manager";
 import { registerTerminalController } from "@/terminal/terminal-controller-registry";
 
 interface UsePersistentTerminalSessionInput {
 	taskId: string;
 	workspaceId: string | null;
 	enabled?: boolean;
+	readOnly?: boolean;
 	onSummary?: (summary: RuntimeTaskSessionSummary) => void;
 	onConnectionReady?: (taskId: string) => void;
 	autoFocus?: boolean;
@@ -23,6 +28,8 @@ export interface UsePersistentTerminalSessionResult {
 	containerRef: MutableRefObject<HTMLDivElement | null>;
 	lastError: string | null;
 	isStopping: boolean;
+	connectionStatus: TerminalConnectionStatus;
+	restoreHadContent: boolean | null;
 	clearTerminal: () => void;
 	stopTerminal: () => Promise<void>;
 }
@@ -31,6 +38,7 @@ export function usePersistentTerminalSession({
 	taskId,
 	workspaceId,
 	enabled = true,
+	readOnly = false,
 	onSummary,
 	onConnectionReady,
 	autoFocus = false,
@@ -57,6 +65,8 @@ export function usePersistentTerminalSession({
 	} | null>(null);
 	const [lastError, setLastError] = useState<string | null>(null);
 	const [isStopping, setIsStopping] = useState(false);
+	const [connectionStatus, setConnectionStatus] = useState<TerminalConnectionStatus>("reconnecting");
+	const [restoreHadContent, setRestoreHadContent] = useState<boolean | null>(null);
 	callbackRef.current = {
 		onSummary,
 		onConnectionReady,
@@ -73,6 +83,7 @@ export function usePersistentTerminalSession({
 			previousSessionRef.current = null;
 			setLastError(null);
 			setIsStopping(false);
+			setRestoreHadContent(null);
 			return;
 		}
 
@@ -85,6 +96,7 @@ export function usePersistentTerminalSession({
 			terminalRef.current = null;
 			previousSessionRef.current = null;
 			setLastError("No project selected.");
+			setRestoreHadContent(null);
 			return;
 		}
 		const container = containerRef.current;
@@ -118,10 +130,12 @@ export function usePersistentTerminalSession({
 			onConnectionReady: (connectedTaskId) => {
 				callbackRef.current.onConnectionReady?.(connectedTaskId);
 			},
+			onConnectionStatus: setConnectionStatus,
 			onLastError: setLastError,
 			onSummary: (summary) => {
 				callbackRef.current.onSummary?.(summary);
 			},
+			onRestoreResult: setRestoreHadContent,
 		});
 		terminal.mount(
 			container,
@@ -156,6 +170,12 @@ export function usePersistentTerminalSession({
 		workspaceId,
 	]);
 
+	// Flips the live instance's read-only flag in place, independent of the mount
+	// effect above, so a trash->review transition doesn't force an unmount/remount.
+	useEffect(() => {
+		terminalRef.current?.setReadOnly(readOnly);
+	}, [readOnly]);
+
 	useEffect(() => {
 		return registerTerminalController(taskId, {
 			input: (text) => terminalRef.current?.input(text) ?? false,
@@ -165,6 +185,9 @@ export function usePersistentTerminalSession({
 	}, [taskId]);
 
 	const stopTerminal = useCallback(async () => {
+		if (readOnly) {
+			return;
+		}
 		const terminal = terminalRef.current;
 		if (!terminal) {
 			return;
@@ -177,16 +200,21 @@ export function usePersistentTerminalSession({
 		} finally {
 			setIsStopping(false);
 		}
-	}, []);
+	}, [readOnly]);
 
 	const clearTerminal = useCallback(() => {
+		if (readOnly) {
+			return;
+		}
 		terminalRef.current?.clear();
-	}, []);
+	}, [readOnly]);
 
 	return {
 		containerRef,
 		lastError,
 		isStopping,
+		connectionStatus,
+		restoreHadContent,
 		clearTerminal,
 		stopTerminal,
 	};

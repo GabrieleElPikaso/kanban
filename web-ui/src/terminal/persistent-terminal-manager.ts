@@ -31,11 +31,15 @@ interface PersistentTerminalAppearance {
 	themeColors?: ThemeTerminalColors;
 }
 
+export type TerminalConnectionStatus = "connected" | "reconnecting" | "disconnected";
+
 interface PersistentTerminalSubscriber {
 	onConnectionReady?: (taskId: string) => void;
+	onConnectionStatus?: (status: TerminalConnectionStatus) => void;
 	onLastError?: (message: string | null) => void;
 	onSummary?: (summary: RuntimeTaskSessionSummary) => void;
 	onOutputText?: (text: string) => void;
+	onRestoreResult?: (hasContent: boolean) => void;
 }
 
 interface MountPersistentTerminalOptions {
@@ -161,6 +165,10 @@ class PersistentTerminal {
 	private outputTextDecoder = new TextDecoder();
 	private terminalWriteQueue: Promise<void> = Promise.resolve();
 	private disposed = false;
+	// Read-only sessions (Done/trash cards) keep the live restore/resize/heartbeat
+	// protocol working but must never forward user keystrokes/paste to the PTY.
+	private readOnly = false;
+	private lastRestoreHadContent: boolean | null = null;
 
 	constructor(
 		private readonly taskId: string,
@@ -200,9 +208,15 @@ class PersistentTerminal {
 		this.terminal.unicode.activeVersion = "11";
 		this.terminal.open(this.hostElement);
 		this.terminal.onData((data) => {
+			if (this.readOnly) {
+				return;
+			}
 			this.sendIoData(data);
 		});
 		this.terminal.onBinary((data) => {
+			if (this.readOnly) {
+				return;
+			}
 			const bytes = new Uint8Array(data.length);
 			for (let index = 0; index < data.length; index += 1) {
 				bytes[index] = data.charCodeAt(index) & 0xff;
@@ -254,6 +268,13 @@ class PersistentTerminal {
 	private notifyOutputText(text: string): void {
 		for (const subscriber of this.subscribers) {
 			subscriber.onOutputText?.(text);
+		}
+	}
+
+	private notifyRestoreResult(hasContent: boolean): void {
+		this.lastRestoreHadContent = hasContent;
+		for (const subscriber of this.subscribers) {
+			subscriber.onRestoreResult?.(hasContent);
 		}
 	}
 
@@ -458,6 +479,7 @@ class PersistentTerminal {
 							return;
 						}
 						this.restoreCompleted = true;
+						this.notifyRestoreResult(payload.snapshot.length > 0);
 						this.sendControlMessage({ type: "restore_complete" });
 						if (this.ioSocket && this.visibleContainer) {
 							this.requestResize();
@@ -536,11 +558,19 @@ class PersistentTerminal {
 		this.updateAppearance(appearance);
 	}
 
+	setReadOnly(value: boolean): void {
+		this.readOnly = value;
+		this.terminal.options.disableStdin = value;
+	}
+
 	subscribe(subscriber: PersistentTerminalSubscriber): () => void {
 		this.subscribers.add(subscriber);
 		subscriber.onLastError?.(this.lastError);
 		if (this.latestSummary) {
 			subscriber.onSummary?.(this.latestSummary);
+		}
+		if (this.lastRestoreHadContent !== null) {
+			subscriber.onRestoreResult?.(this.lastRestoreHadContent);
 		}
 		if (this.connectionReady) {
 			subscriber.onConnectionReady?.(this.taskId);
@@ -612,6 +642,9 @@ class PersistentTerminal {
 	}
 
 	input(text: string): boolean {
+		if (this.readOnly) {
+			return false;
+		}
 		if (!this.ioSocket || this.ioSocket.readyState !== WebSocket.OPEN) {
 			return false;
 		}
@@ -620,6 +653,9 @@ class PersistentTerminal {
 	}
 
 	paste(text: string): boolean {
+		if (this.readOnly) {
+			return false;
+		}
 		if (!this.ioSocket || this.ioSocket.readyState !== WebSocket.OPEN) {
 			return false;
 		}

@@ -85,6 +85,14 @@ export class TerminalStateMirror {
 		);
 	}
 
+	// Synchronous chunk counter, incremented in the same call that enqueues the
+	// chunk onto the mirror. Callers can read this right after `applyOutput` to
+	// stamp a chunk with the exact sequence number `getSnapshot()` will use as
+	// its cutoff, without waiting for the write to actually land.
+	getOutputSequence(): number {
+		return this.enqueuedCount;
+	}
+
 	resize(cols: number, rows: number): void {
 		if (cols === this.terminal.cols && rows === this.terminal.rows) {
 			return;
