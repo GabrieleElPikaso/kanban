@@ -774,8 +774,8 @@ describe("useBoardInteractions", () => {
 		expect(maxInFlight).toBeGreaterThan(0);
 		expect(maxInFlight).toBeLessThanOrEqual(4);
 		for (const task of trashTasks) {
-			expect(stopTaskSession).toHaveBeenCalledWith(task.id);
-			expect(cleanupTaskWorkspace).toHaveBeenCalledWith(task.id);
+			expect(stopTaskSession).toHaveBeenCalledWith(task.id, task.title);
+			expect(cleanupTaskWorkspace).toHaveBeenCalledWith(task.id, task.title);
 		}
 	});
 
@@ -866,7 +866,8 @@ describe("useBoardInteractions", () => {
 		}
 		const backlogColumn = lastSetBoardArg.columns.find((column) => column.id === "backlog");
 		expect(backlogColumn?.cards.map((card) => card.id)).toEqual(["task-review"]);
-		expect(stopTaskSession).toHaveBeenCalledWith("task-review");
+		expect(notifyErrorMock).not.toHaveBeenCalled();
+		expect(stopTaskSession).toHaveBeenCalledWith("task-review", "Review task");
 		expect(cleanupTaskWorkspace).toHaveBeenCalledWith("task-review");
 	});
 

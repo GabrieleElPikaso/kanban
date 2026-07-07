@@ -65,8 +65,8 @@ interface UseBoardInteractionsInput {
 	setSelectedTaskId: Dispatch<SetStateAction<string | null>>;
 	setIsClearTrashDialogOpen: Dispatch<SetStateAction<boolean>>;
 	setIsGitHistoryOpen: Dispatch<SetStateAction<boolean>>;
-	stopTaskSession: (taskId: string) => Promise<void>;
-	cleanupTaskWorkspace: (taskId: string) => Promise<unknown>;
+	stopTaskSession: (taskId: string, taskTitle?: string) => Promise<void>;
+	cleanupTaskWorkspace: (taskId: string, taskTitle?: string) => Promise<unknown>;
 	ensureTaskWorkspace: UseTaskSessionsResult["ensureTaskWorkspace"];
 	startTaskSession: UseTaskSessionsResult["startTaskSession"];
 	fetchTaskWorkspaceInfo: (task: BoardCard) => Promise<RuntimeTaskWorkspaceInfoResponse | null>;
@@ -275,6 +275,14 @@ export function useBoardInteractions({
 		return trashColumn ? trashColumn.cards.map((card) => card.id) : [];
 	}, [board.columns]);
 	const trashTaskCount = trashTaskIds.length;
+	const trashTaskTitleById = useMemo(() => {
+		const trashColumn = board.columns.find((column) => column.id === "trash");
+		const titleById: Record<string, string> = {};
+		for (const card of trashColumn?.cards ?? []) {
+			titleById[card.id] = card.title;
+		}
+		return titleById;
+	}, [board.columns]);
 
 	const maybeRequestNotificationPermissionForTaskStart = useCallback(() => {
 		const shouldPromptForNotificationPermission =
@@ -645,6 +653,7 @@ export function useBoardInteractions({
 
 			if (moveEvent.fromColumnId === "review" && moveEvent.toColumnId === "backlog") {
 				setBoard(applied.board);
+				void stopTaskSession(moveEvent.taskId, findCardSelection(applied.board, moveEvent.taskId)?.card.title);
 				resolvePendingProgrammaticStartMove(moveEvent.taskId, false);
 				void (async () => {
 					await Promise.all([
@@ -864,6 +873,7 @@ export function useBoardInteractions({
 
 	const handleConfirmClearTrash = useCallback(() => {
 		const taskIds = [...trashTaskIds];
+		const taskTitleById = trashTaskTitleById;
 		setIsClearTrashDialogOpen(false);
 		if (taskIds.length === 0) {
 			return;
@@ -885,12 +895,13 @@ export function useBoardInteractions({
 		const limitCleanup = pLimit(CLEAR_TRASH_CLEANUP_CONCURRENCY);
 		void (async () => {
 			await Promise.all(
-				taskIds.map((taskId) =>
-					limitCleanup(async () => {
-						await stopTaskSession(taskId);
-						await cleanupTaskWorkspace(taskId);
-					}),
-				),
+			taskIds.map((taskId) =>
+				limitCleanup(async () => {
+					const taskTitle = taskTitleById[taskId];
+					await stopTaskSession(taskId, taskTitle);
+					await cleanupTaskWorkspace(taskId, taskTitle);
+				}),
+			),
 			);
 		})();
 	}, [
@@ -902,6 +913,7 @@ export function useBoardInteractions({
 		setSessions,
 		stopTaskSession,
 		trashTaskIds,
+		trashTaskTitleById,
 	]);
 
 	const resetBoardInteractionsState = useCallback(() => {
