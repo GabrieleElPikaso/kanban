@@ -8,6 +8,7 @@ import { useLinkedBacklogTaskActions } from "@/hooks/use-linked-backlog-task-act
 import { useProgrammaticCardMoves } from "@/hooks/use-programmatic-card-moves";
 import { useReviewAutoActions } from "@/hooks/use-review-auto-actions";
 import type { UseTaskSessionsResult } from "@/hooks/use-task-sessions";
+import { getDetailTerminalTaskId } from "@/hooks/use-terminal-panels";
 import type { RuntimeTaskSessionSummary, RuntimeTaskWorkspaceInfoResponse } from "@/runtime/types";
 import {
 	applyDragResult,
@@ -472,11 +473,14 @@ export function useBoardInteractions({
 					}
 					continue;
 				}
+				// Cards returned to backlog keep their stopped (interrupted) session
+				// summary; they are queued for a fresh start, not done work.
 				if (
 					summary.state === "interrupted" &&
 					previous?.state !== "interrupted" &&
 					columnId &&
-					columnId !== "trash"
+					columnId !== "trash" &&
+					columnId !== "backlog"
 				) {
 					const nextTaskId = getNextDetailTaskIdAfterTrashMove(nextBoard, summary.taskId);
 					const programmaticMoveAttempt = tryProgrammaticCardMove(summary.taskId, columnId, "trash", {
@@ -639,6 +643,19 @@ export function useBoardInteractions({
 				return;
 			}
 
+			if (moveEvent.fromColumnId === "review" && moveEvent.toColumnId === "backlog") {
+				setBoard(applied.board);
+				resolvePendingProgrammaticStartMove(moveEvent.taskId, false);
+				void (async () => {
+					await Promise.all([
+						stopTaskSession(moveEvent.taskId),
+						stopTaskSession(getDetailTerminalTaskId(moveEvent.taskId)),
+					]);
+					await cleanupTaskWorkspace(moveEvent.taskId);
+				})();
+				return;
+			}
+
 			setBoard(applied.board);
 
 			if (
@@ -665,6 +682,7 @@ export function useBoardInteractions({
 		},
 		[
 			board,
+			cleanupTaskWorkspace,
 			consumeProgrammaticCardMove,
 			kickoffTaskInProgress,
 			maybeRequestNotificationPermissionForTaskStart,
@@ -674,6 +692,7 @@ export function useBoardInteractions({
 			resolvePendingProgrammaticTrashMove,
 			setBoard,
 			setSelectedTaskId,
+			stopTaskSession,
 		],
 	);
 

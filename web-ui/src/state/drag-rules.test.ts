@@ -57,4 +57,12 @@ describe("drag rules", () => {
 	it("allows manual trash to review drops", () => {
 		expect(isCardDropDisabled("review", "trash")).toBe(false);
 	});
+
+	it("allows manual review to backlog drops", () => {
+		expect(isCardDropDisabled("backlog", "review")).toBe(false);
+	});
+
+	it("keeps manual in-progress to backlog drops disabled", () => {
+		expect(isCardDropDisabled("backlog", "in_progress")).toBe(true);
+	});
 });

@@ -252,6 +252,29 @@ describe("board dependency state", () => {
 		expect(getTaskColumnId(attemptedReviewMove.board, taskA)).toBe("in_progress");
 	});
 
+	it("allows manual review to backlog drags", () => {
+		const fixture = createBacklogBoard(["Task A"]);
+		const taskA = requireTaskId(fixture.taskIdByPrompt["Task A"], "Task A");
+		const movedToReview = moveTaskToColumn(fixture.board, taskA, "review");
+		expect(movedToReview.moved).toBe(true);
+
+		const movedBack = applyDragResult(movedToReview.board, {
+			draggableId: taskA,
+			type: "CARD",
+			source: { droppableId: "review", index: 0 },
+			destination: { droppableId: "backlog", index: 0 },
+			mode: "SNAP",
+			reason: "DROP",
+			combine: null,
+		});
+		expect(movedBack.moveEvent).toMatchObject({
+			taskId: taskA,
+			fromColumnId: "review",
+			toColumnId: "backlog",
+		});
+		expect(getTaskColumnId(movedBack.board, taskA)).toBe("backlog");
+	});
+
 	it("preserves manual backlog to in-progress drop positions", () => {
 		const fixture = createBacklogBoard(["Task A", "Task B", "Task C"]);
 		const taskA = requireTaskId(fixture.taskIdByPrompt["Task A"], "Task A");
