@@ -65,6 +65,6 @@
     "vitest": "^4.1.0"
   },
   "overrides": {
-    "protobufjs": ">=7.6.1"
+    "protobufjs": ">=7.6.1 <8"
   }
 }
