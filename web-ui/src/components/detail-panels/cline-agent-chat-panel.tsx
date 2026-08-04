@@ -418,7 +418,15 @@ export const ClineAgentChatPanel = React.forwardRef<ClineAgentChatPanelHandle, C
 					onScroll={handleMessageListScroll}
 				>
 					{messages.map((message) => (
-						<ClineChatMessageItem key={message.id} message={message} />
+						<div
+							key={message.id}
+							style={{
+								contentVisibility: "auto",
+								containIntrinsicSize: "auto 160px",
+							}}
+						>
+							<ClineChatMessageItem message={message} />
+						</div>
 					))}
 					{showAgentProgressIndicator ? <ClineThinkingIndicator /> : null}
 					{isCreditLimitNoticeVisible ? <ClineCreditLimitNotice /> : null}

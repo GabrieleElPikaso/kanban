@@ -320,6 +320,13 @@ class PersistentTerminal {
 		rows: number | null | undefined,
 	): Promise<void> {
 		await this.terminalWriteQueue.catch(() => undefined);
+		// Preserve the user's scroll position across restore replay. terminal.reset()
+		// clears the buffer and forces the viewport back to the top, so we capture
+		// the offset-from-bottom before resetting and re-apply it after the snapshot
+		// is written. See https://github.com/cline/kanban/issues/539.
+		const buffer = this.terminal.buffer.active;
+		const savedOffsetFromBottom = Math.max(0, buffer.length - buffer.viewportY);
+		const wasPinnedToBottom = buffer.viewportY >= buffer.length - this.terminal.rows - 1;
 		this.terminal.reset();
 		if (cols && rows && (this.terminal.cols !== cols || this.terminal.rows !== rows)) {
 			this.terminal.resize(cols, rows);
@@ -328,13 +335,32 @@ class PersistentTerminal {
 			return;
 		}
 		await this.enqueueTerminalWrite(snapshot);
+		// Re-apply scroll position after the snapshot is written.
+		if (wasPinnedToBottom) {
+			this.terminal.scrollToBottom();
+		} else {
+			this.terminal.scrollToBottom();
+			this.terminal.scrollLines(-savedOffsetFromBottom);
+		}
 	}
 
 	private requestResize(): void {
 		if (!this.visibleContainer) {
 			return;
 		}
+		// Preserve scroll position across fit/resize. fitAddon.fit() can indirectly
+		// reset the viewport, especially when rows change. See
+		// https://github.com/cline/kanban/issues/539.
+		const buffer = this.terminal.buffer.active;
+		const savedOffsetFromBottom = Math.max(0, buffer.length - buffer.viewportY);
+		const wasPinnedToBottom = buffer.viewportY >= buffer.length - this.terminal.rows - 1;
 		this.fitAddon.fit();
+		if (wasPinnedToBottom) {
+			this.terminal.scrollToBottom();
+		} else {
+			this.terminal.scrollToBottom();
+			this.terminal.scrollLines(-savedOffsetFromBottom);
+		}
 		const bounds = this.visibleContainer.getBoundingClientRect();
 		const pixelWidth = Math.round(bounds.width);
 		const pixelHeight = Math.round(bounds.height);
