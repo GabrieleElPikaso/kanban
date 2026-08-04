@@ -12,6 +12,16 @@ export interface InlineSuffixClampResult {
 
 export const DEFAULT_TASK_PROMPT_LABEL_MAX_CHARS = 100;
 
+/**
+ * Maximum number of characters kept from a task prompt before it enters the
+ * card description rendering pipeline. Card descriptions are clamped to a few
+ * lines visually, so keeping only a short prefix avoids feeding extremely long
+ * prompts (1000+ lines → 50 000+ chars after whitespace normalisation) into the
+ * binary-search-based text clamp, which would otherwise freeze the board.
+ * See https://github.com/cline/kanban/issues/577.
+ */
+export const DEFAULT_TASK_PROMPT_DESCRIPTION_MAX_CHARS = 500;
+
 export function normalizePromptForDisplay(prompt: string): string {
 	return prompt.replaceAll(/\s+/g, " ").trim();
 }
@@ -30,7 +40,7 @@ export function getTaskPromptDescription(prompt: string, title: string): string 
 		return "";
 	}
 	if (!normalizedTitle) {
-		return normalizedPrompt;
+		return truncateForDescription(normalizedPrompt);
 	}
 	if (normalizedPrompt === normalizedTitle) {
 		return "";
@@ -41,10 +51,17 @@ export function getTaskPromptDescription(prompt: string, title: string): string 
 			.replace(/^[\s:;,.!?-]+/u, "")
 			.trim();
 		if (remainder.length > 0) {
-			return remainder;
+			return truncateForDescription(remainder);
 		}
 	}
-	return normalizedPrompt;
+	return truncateForDescription(normalizedPrompt);
+}
+
+function truncateForDescription(text: string): string {
+	if (text.length <= DEFAULT_TASK_PROMPT_DESCRIPTION_MAX_CHARS) {
+		return text;
+	}
+	return `${text.slice(0, DEFAULT_TASK_PROMPT_DESCRIPTION_MAX_CHARS).trimEnd()}…`;
 }
 
 function wrapTextByWidth(

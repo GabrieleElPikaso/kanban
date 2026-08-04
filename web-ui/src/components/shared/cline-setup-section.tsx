@@ -868,7 +868,7 @@ export function ClineSetupSection({
 												</span>
 											</p>
 											{authStatus?.lastError ? (
-												<p className="text-status-red text-[12px] mt-0 mb-1">{authStatus.lastError}</p>
+												<p className="text-status-red text-[12px] mt-0 mb-1 break-all whitespace-pre-wrap">{authStatus.lastError}</p>
 											) : null}
 											<Button
 												variant="default"
