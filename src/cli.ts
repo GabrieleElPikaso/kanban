@@ -312,9 +312,10 @@ async function tryOpenExistingServer(options: { noOpen: boolean; shouldAutoOpenB
 	return true;
 }
 
-async function runScopedCommand(command: string, cwd: string): Promise<RuntimeCommandRunResponse> {
+async function runScopedCommand(command: string, cwd: string, timeoutMs?: number): Promise<RuntimeCommandRunResponse> {
 	const startedAt = Date.now();
 	const outputLimitBytes = 64 * 1024;
+	const effectiveTimeout = typeof timeoutMs === "number" && Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 60_000;
 
 	return await new Promise<RuntimeCommandRunResponse>((resolve, reject) => {
 		const child = spawn(command, {
@@ -354,7 +355,7 @@ async function runScopedCommand(command: string, cwd: string): Promise<RuntimeCo
 
 		const timeout = setTimeout(() => {
 			terminateProcessForTimeout(child);
-		}, 60_000);
+		}, effectiveTimeout);
 
 		child.on("close", (code) => {
 			clearTimeout(timeout);
