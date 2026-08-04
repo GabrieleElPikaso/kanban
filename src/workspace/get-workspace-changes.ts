@@ -61,7 +61,52 @@ function toLineCount(text: string): number {
 	if (!text) {
 		return 0;
 	}
-	return text.split("\n").length;
+	const lines = text.split("\n");
+	return text.endsWith("\n") && lines[lines.length - 1] === "" ? lines.length - 1 : lines.length;
+}
+
+function toLines(text: string): string[] {
+	const rawLines = text.split("\n");
+	return text.endsWith("\n") ? rawLines.slice(0, -1) : rawLines;
+}
+
+function computeDiffStat(oldText: string | null, newText: string | null): DiffStat {
+	if (oldText == null && newText == null) {
+		return { additions: 0, deletions: 0 };
+	}
+	if (oldText == null) {
+		return { additions: toLineCount(newText ?? ""), deletions: 0 };
+	}
+	if (newText == null) {
+		return { additions: 0, deletions: toLineCount(oldText) };
+	}
+
+	const oldLines = toLines(oldText);
+	const newLines = toLines(newText);
+
+	if (oldLines.length > 5000 || newLines.length > 5000) {
+		return fallbackStats(oldText, newText);
+	}
+
+	const m = oldLines.length;
+	const n = newLines.length;
+	const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
+
+	for (let i = 1; i <= m; i++) {
+		for (let j = 1; j <= n; j++) {
+			if (oldLines[i - 1] === newLines[j - 1]) {
+				dp[i][j] = dp[i - 1][j - 1] + 1;
+			} else {
+				dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+			}
+		}
+	}
+
+	const commonLines = dp[m][n];
+	return {
+		additions: newLines.length - commonLines,
+		deletions: oldLines.length - commonLines,
+	};
 }
 
 function parseTrackedChanges(output: string): NameStatusEntry[] {
@@ -288,7 +333,9 @@ async function buildFileChange(repoRoot: string, entry: NameStatusEntry): Promis
 	const stats =
 		entry.status === "untracked"
 			? { additions: toLineCount(newText ?? ""), deletions: 0 }
-			: ((await readDiffStat(repoRoot, entry.path)) ?? fallbackStats(oldText, newText));
+			: entry.status === "renamed" || entry.status === "copied"
+				? computeDiffStat(oldText, newText)
+				: ((await readDiffStat(repoRoot, entry.path)) ?? fallbackStats(oldText, newText));
 
 	return {
 		path: entry.path,
@@ -311,7 +358,9 @@ async function buildFileChangeBetweenRefs(
 	const oldText = entry.status === "added" ? null : await readFileAtRef(repoRoot, fromRef, basePath);
 	const newText = entry.status === "deleted" ? null : await readFileAtRef(repoRoot, toRef, entry.path);
 	const stats =
-		(await readDiffStatBetweenRefs(repoRoot, fromRef, toRef, entry.path)) ?? fallbackStats(oldText, newText);
+		entry.status === "renamed" || entry.status === "copied"
+			? computeDiffStat(oldText, newText)
+			: ((await readDiffStatBetweenRefs(repoRoot, fromRef, toRef, entry.path)) ?? fallbackStats(oldText, newText));
 
 	return {
 		path: entry.path,
@@ -338,7 +387,9 @@ async function buildFileChangeFromRef(
 	const stats =
 		entry.status === "untracked"
 			? { additions: toLineCount(newText ?? ""), deletions: 0 }
-			: ((await readDiffStatFromRef(repoRoot, fromRef, entry.path)) ?? fallbackStats(oldText, newText));
+			: entry.status === "renamed" || entry.status === "copied"
+				? computeDiffStat(oldText, newText)
+				: ((await readDiffStatFromRef(repoRoot, fromRef, entry.path)) ?? fallbackStats(oldText, newText));
 
 	return {
 		path: entry.path,

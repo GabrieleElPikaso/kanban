@@ -33,7 +33,8 @@ function countLines(text: string): number {
 	if (!text) {
 		return 0;
 	}
-	return text.split("\n").length;
+	const lines = text.split("\n");
+	return text.endsWith("\n") && lines[lines.length - 1] === "" ? lines.length - 1 : lines.length;
 }
 
 function parseNumstatTotals(output: string): { additions: number; deletions: number } {
