@@ -29,6 +29,17 @@ import {
 
 const DEFAULT_AUTH_TIMEOUT_MS = 3 * 60 * 1000;
 const COMPLETED_CALLBACK_RETENTION_MS = 5 * 60 * 1000;
+
+function normalizeToolInputSchema(inputSchema: unknown): Record<string, unknown> {
+	if (inputSchema && typeof inputSchema === "object" && !Array.isArray(inputSchema)) {
+		const schema = inputSchema as Record<string, unknown>;
+		if (schema.type === null || schema.type === undefined) {
+			return { ...schema, type: "object" };
+		}
+		return schema;
+	}
+	return {};
+}
 const OAUTH_CALLBACK_PATH = "/kanban-mcp/mcp-oauth-callback";
 const OAUTH_CALLBACK_REQUEST_ID_PARAM = "requestId";
 
@@ -517,10 +528,7 @@ class RuntimeMcpServerClient implements SdkMcpServerClient {
 			return result.tools.map((tool) => ({
 				name: tool.name,
 				description: tool.description,
-				inputSchema:
-					tool.inputSchema && typeof tool.inputSchema === "object" && !Array.isArray(tool.inputSchema)
-						? (tool.inputSchema as Record<string, unknown>)
-						: {},
+				inputSchema: normalizeToolInputSchema(tool.inputSchema),
 			}));
 		});
 	}

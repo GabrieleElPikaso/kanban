@@ -497,7 +497,13 @@ function SplitDiff({
 				<div className="kb-diff-split-grid-background-column" />
 				<div className="kb-diff-split-grid-background-column kb-diff-split-grid-background-column-right" />
 			</div>
-			<div className="kb-diff-split-grid-content">{renderDisplayItems()}</div>
+			{workspaceFiles && workspaceFiles.length === 0 ? (
+				<div className="p-4 text-sm text-text-secondary">
+					No changes yet. The changes tab will populate after the task makes progress.
+				</div>
+			) : (
+				<div className="kb-diff-split-grid-content">{renderDisplayItems()}</div>
+			)}
 		</div>
 	);
 }

@@ -734,7 +734,7 @@ function ProjectRow({
 			toneClassName: "bg-status-red/20 text-status-red",
 			count: project.taskCounts.trash,
 		},
-	].filter((item) => item.count > 0);
+	].filter((item) => (item.count ?? 0) > 0);
 
 	return (
 		<div
