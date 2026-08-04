@@ -796,7 +796,14 @@ export function useBoardInteractions({
 			if (!moved.moved) {
 				return;
 			}
-			setBoard(moved.board);
+			// Disable auto-review synchronously when restoring from trash so that
+			// evaluateAutoReview (which fires on the next render) does not re-arm
+			// commit/PR automation against stale working changes and immediately
+			// move the task back to trash. resumeTaskFromTrash will also disable it
+			// on success, but that happens asynchronously and is too late.
+			// See https://github.com/cline/kanban/issues/73.
+			const disabledAutoReview = disableTaskAutoReview(moved.board, taskId);
+			setBoard(disabledAutoReview.updated ? disabledAutoReview.board : moved.board);
 			const movedSelection = findCardSelection(moved.board, taskId);
 			if (!movedSelection) {
 				return;
