@@ -51,9 +51,18 @@ function createLockOptions(request: LockRequest, lockfilePath: string): LockOpti
 		realpath: false,
 		lockfilePath,
 	};
-	if (typeof request.onCompromised === "function") {
-		options.onCompromised = request.onCompromised;
-	}
+	// Always provide an onCompromised callback. proper-lockfile rethrows the
+	// compromise error and would otherwise crash the whole runtime when a lock
+	// file is removed out from under an in-flight operation (e.g. a crashed
+	// sibling process or manual cleanup). Log a warning by default unless the
+	// caller opts into handling it, so a compromised lock never kills the server.
+	options.onCompromised = (error: Error) => {
+		if (typeof request.onCompromised === "function") {
+			request.onCompromised(error);
+		} else {
+			console.warn(`[kanban] lock compromised, ignoring: ${error.message}`);
+		}
+	};
 	return options;
 }
 
