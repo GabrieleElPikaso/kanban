@@ -13,6 +13,7 @@ import {
 	type RuntimeWorkspaceStateResponse,
 	type RuntimeWorkspaceStateSaveRequest,
 	runtimeBoardDataSchema,
+	runtimeTaskSessionStateSchema,
 	runtimeTaskSessionSummarySchema,
 	runtimeWorkspaceStateSaveRequestSchema,
 } from "../core/api-contract";
@@ -114,8 +115,18 @@ const workspaceIndexFileSchema = z
 		}
 	});
 
-const workspaceSessionsSchema = z
-	.record(z.string(), runtimeTaskSessionSummarySchema)
+// Tolerant variant of runtimeTaskSessionSummarySchema for reading persisted
+// sessions.json. The SDK (@clinebot/core) can write intermediate states such as
+// "awaiting_start" that the strict runtime enum does not know about. Instead of
+// rejecting the whole file and blocking workspace load, map any unrecognised
+// state back to "idle" so the UI can recover. See
+// https://github.com/cline/kanban/issues/529.
+const persistedRuntimeTaskSessionSummarySchema = runtimeTaskSessionSummarySchema.extend({
+	state: runtimeTaskSessionStateSchema.catch("idle"),
+});
+
+const persistedWorkspaceSessionsSchema = z
+	.record(z.string(), persistedRuntimeTaskSessionSummarySchema)
 	.superRefine((sessions, context) => {
 		for (const [taskId, session] of Object.entries(sessions)) {
 			if (session.taskId !== taskId) {
@@ -307,7 +318,7 @@ export async function loadWorkspaceBoardById(workspaceId: string): Promise<Runti
 async function readWorkspaceSessions(workspaceId: string): Promise<Record<string, RuntimeTaskSessionSummary>> {
 	const sessionsPath = getWorkspaceSessionsPath(workspaceId);
 	const rawSessions = await readJsonFile(sessionsPath);
-	return parsePersistedStateFile(sessionsPath, SESSIONS_FILENAME, rawSessions, workspaceSessionsSchema, {});
+	return parsePersistedStateFile(sessionsPath, SESSIONS_FILENAME, rawSessions, persistedWorkspaceSessionsSchema, {});
 }
 
 async function readWorkspaceMeta(workspaceId: string): Promise<WorkspaceStateMeta> {
