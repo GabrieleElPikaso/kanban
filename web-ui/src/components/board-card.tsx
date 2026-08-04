@@ -419,10 +419,12 @@ export function BoardCard({
 			: null;
 	const reviewRefLabel = reviewWorkspaceSnapshot?.branch ?? reviewWorkspaceSnapshot?.headCommit?.slice(0, 8) ?? "HEAD";
 	const reviewChangeSummary = reviewWorkspaceSnapshot
-		? reviewWorkspaceSnapshot.changedFiles == null
+		? reviewWorkspaceSnapshot.changedFiles == null &&
+		  reviewWorkspaceSnapshot.additions == null &&
+		  reviewWorkspaceSnapshot.deletions == null
 			? null
 			: {
-					filesLabel: `${reviewWorkspaceSnapshot.changedFiles} ${reviewWorkspaceSnapshot.changedFiles === 1 ? "file" : "files"}`,
+					filesLabel: `${reviewWorkspaceSnapshot.changedFiles ?? reviewWorkspaceSnapshot.additions + reviewWorkspaceSnapshot.deletions} ${(reviewWorkspaceSnapshot.changedFiles ?? reviewWorkspaceSnapshot.additions + reviewWorkspaceSnapshot.deletions) === 1 ? "file" : "files"}`,
 					additions: reviewWorkspaceSnapshot.additions ?? 0,
 					deletions: reviewWorkspaceSnapshot.deletions ?? 0,
 				}
