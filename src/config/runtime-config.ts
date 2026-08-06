@@ -17,6 +17,7 @@ interface RuntimeGlobalConfigFileShape {
 	readyForReviewNotificationsEnabled?: boolean;
 	commitPromptTemplate?: string;
 	openPrPromptTemplate?: string;
+	defaultProjectPath?: string;
 }
 
 interface RuntimeProjectConfigFileShape {
@@ -35,6 +36,7 @@ export interface RuntimeConfigState {
 	openPrPromptTemplate: string;
 	commitPromptTemplateDefault: string;
 	openPrPromptTemplateDefault: string;
+	defaultProjectPath: string | null;
 }
 
 export interface RuntimeConfigUpdateInput {
@@ -45,6 +47,7 @@ export interface RuntimeConfigUpdateInput {
 	shortcuts?: RuntimeProjectShortcut[];
 	commitPromptTemplate?: string;
 	openPrPromptTemplate?: string;
+	defaultProjectPath?: string | null;
 }
 
 const RUNTIME_HOME_PARENT_DIR = ".cline";
@@ -53,11 +56,14 @@ const CONFIG_FILENAME = "config.json";
 const PROJECT_CONFIG_PARENT_DIR = ".cline";
 const PROJECT_CONFIG_DIR = "kanban";
 const PROJECT_CONFIG_FILENAME = "config.json";
-const DEFAULT_AGENT_ID: RuntimeAgentId = "cline";
-const AUTO_SELECT_AGENT_PRIORITY: readonly RuntimeAgentId[] = ["claude", "codex", "droid", "kiro"];
+const DEFAULT_AGENT_ID: RuntimeAgentId = "opencode";
+const AUTO_SELECT_AGENT_PRIORITY: readonly RuntimeAgentId[] = ["claude", "codex", "droid", "kiro", "opencode"];
 const DEFAULT_AGENT_AUTONOMOUS_MODE_ENABLED = true;
 const DEFAULT_READY_FOR_REVIEW_NOTIFICATIONS_ENABLED = true;
-const DEFAULT_COMMIT_PROMPT_TEMPLATE = `You are in a worktree on a detached HEAD. When you are finished with the task, commit the working changes onto {{base_ref}}.
+export const DEFAULT_DEFAULT_PROJECT_PATH = "D:/obsidian/roadmap-forest";
+const DEFAULT_COMMIT_PROMPT_TEMPLATE = "";
+const DEFAULT_OPEN_PR_PROMPT_TEMPLATE = "";
+export const LEGACY_DEFAULT_COMMIT_PROMPT_TEMPLATE = `You are in a worktree on a detached HEAD. When you are finished with the task, commit the working changes onto {{base_ref}}.
 
 - Do not run destructive commands: git reset --hard, git clean -fdx, git worktree remove, rm/mv on repository paths.
 - Do not edit files outside git workflows unless required for conflict resolution.
@@ -81,7 +87,7 @@ Steps:
    - Whether stash was used
    - Whether conflicts were resolved
    - Any remaining manual follow-up needed`;
-const DEFAULT_OPEN_PR_PROMPT_TEMPLATE = `You are in a worktree on a detached HEAD. When you are finished with the task, open a pull request against {{base_ref}}.
+export const LEGACY_DEFAULT_OPEN_PR_PROMPT_TEMPLATE = `You are in a worktree on a detached HEAD. When you are finished with the task, open a pull request against {{base_ref}}.
 
 - Do not run destructive commands: git reset --hard, git clean -fdx, git worktree remove, rm/mv on repository paths.
 - Do not modify the base worktree.
@@ -176,6 +182,28 @@ function normalizePromptTemplate(value: unknown, fallback: string): string {
 	}
 	const normalized = value.trim();
 	return normalized.length > 0 ? value : fallback;
+}
+
+function normalizeStoredPromptTemplate(value: unknown, legacyDefault: string, fallback: string): string {
+	if (typeof value !== "string") {
+		return fallback;
+	}
+	const normalized = value.trim();
+	if (normalized.length === 0) {
+		return fallback;
+	}
+	if (value === legacyDefault) {
+		return fallback;
+	}
+	return value;
+}
+
+function normalizeProjectPath(value: unknown): string | null {
+	if (typeof value !== "string") {
+		return null;
+	}
+	const normalized = value.trim();
+	return normalized.length > 0 ? normalized : null;
 }
 
 function normalizeBoolean(value: unknown, fallback: boolean): boolean {
@@ -284,13 +312,19 @@ function toRuntimeConfigState({
 			DEFAULT_READY_FOR_REVIEW_NOTIFICATIONS_ENABLED,
 		),
 		shortcuts: normalizeShortcuts(projectConfig?.shortcuts),
-		commitPromptTemplate: normalizePromptTemplate(globalConfig?.commitPromptTemplate, DEFAULT_COMMIT_PROMPT_TEMPLATE),
-		openPrPromptTemplate: normalizePromptTemplate(
+		commitPromptTemplate: normalizeStoredPromptTemplate(
+			globalConfig?.commitPromptTemplate,
+			LEGACY_DEFAULT_COMMIT_PROMPT_TEMPLATE,
+			DEFAULT_COMMIT_PROMPT_TEMPLATE,
+		),
+		openPrPromptTemplate: normalizeStoredPromptTemplate(
 			globalConfig?.openPrPromptTemplate,
+			LEGACY_DEFAULT_OPEN_PR_PROMPT_TEMPLATE,
 			DEFAULT_OPEN_PR_PROMPT_TEMPLATE,
 		),
 		commitPromptTemplateDefault: DEFAULT_COMMIT_PROMPT_TEMPLATE,
 		openPrPromptTemplateDefault: DEFAULT_OPEN_PR_PROMPT_TEMPLATE,
+		defaultProjectPath: normalizeProjectPath(globalConfig?.defaultProjectPath),
 	};
 }
 
@@ -312,6 +346,7 @@ async function writeRuntimeGlobalConfigFile(
 		readyForReviewNotificationsEnabled?: boolean;
 		commitPromptTemplate?: string;
 		openPrPromptTemplate?: string;
+		defaultProjectPath?: string | null;
 	},
 ): Promise<void> {
 	const existing = await readRuntimeConfigFile<RuntimeGlobalConfigFileShape>(configPath);
@@ -340,6 +375,11 @@ async function writeRuntimeGlobalConfigFile(
 		config.openPrPromptTemplate === undefined
 			? DEFAULT_OPEN_PR_PROMPT_TEMPLATE
 			: normalizePromptTemplate(config.openPrPromptTemplate, DEFAULT_OPEN_PR_PROMPT_TEMPLATE);
+	const defaultProjectPath =
+		config.defaultProjectPath === undefined ? undefined : normalizeProjectPath(config.defaultProjectPath);
+	const existingDefaultProjectPath = hasOwnKey(existing, "defaultProjectPath")
+		? normalizeProjectPath(existing?.defaultProjectPath)
+		: undefined;
 
 	const payload: RuntimeGlobalConfigFileShape = {};
 	if (selectedAgentId !== undefined) {
@@ -373,6 +413,13 @@ async function writeRuntimeGlobalConfigFile(
 	}
 	if (hasOwnKey(existing, "openPrPromptTemplate") || openPrPromptTemplate !== DEFAULT_OPEN_PR_PROMPT_TEMPLATE) {
 		payload.openPrPromptTemplate = openPrPromptTemplate;
+	}
+	if (defaultProjectPath !== undefined) {
+		if (defaultProjectPath) {
+			payload.defaultProjectPath = defaultProjectPath;
+		}
+	} else if (existingDefaultProjectPath) {
+		payload.defaultProjectPath = existingDefaultProjectPath;
 	}
 
 	await lockedFileSystem.writeJsonFileAtomic(configPath, payload, {
@@ -456,6 +503,7 @@ function createRuntimeConfigStateFromValues(input: {
 	shortcuts: RuntimeProjectShortcut[];
 	commitPromptTemplate: string;
 	openPrPromptTemplate: string;
+	defaultProjectPath?: string | null;
 }): RuntimeConfigState {
 	return {
 		globalConfigPath: input.globalConfigPath,
@@ -475,6 +523,7 @@ function createRuntimeConfigStateFromValues(input: {
 		openPrPromptTemplate: normalizePromptTemplate(input.openPrPromptTemplate, DEFAULT_OPEN_PR_PROMPT_TEMPLATE),
 		commitPromptTemplateDefault: DEFAULT_COMMIT_PROMPT_TEMPLATE,
 		openPrPromptTemplateDefault: DEFAULT_OPEN_PR_PROMPT_TEMPLATE,
+		defaultProjectPath: normalizeProjectPath(input.defaultProjectPath),
 	};
 }
 
@@ -489,6 +538,7 @@ export function toGlobalRuntimeConfigState(current: RuntimeConfigState): Runtime
 		shortcuts: [],
 		commitPromptTemplate: current.commitPromptTemplate,
 		openPrPromptTemplate: current.openPrPromptTemplate,
+		defaultProjectPath: current.defaultProjectPath,
 	});
 }
 
@@ -524,6 +574,7 @@ export async function saveRuntimeConfig(
 		shortcuts: RuntimeProjectShortcut[];
 		commitPromptTemplate: string;
 		openPrPromptTemplate: string;
+		defaultProjectPath: string | null;
 	},
 ): Promise<RuntimeConfigState> {
 	const { globalConfigPath, projectConfigPath } = resolveRuntimeConfigPaths(cwd);
@@ -535,6 +586,7 @@ export async function saveRuntimeConfig(
 			readyForReviewNotificationsEnabled: config.readyForReviewNotificationsEnabled,
 			commitPromptTemplate: config.commitPromptTemplate,
 			openPrPromptTemplate: config.openPrPromptTemplate,
+			defaultProjectPath: config.defaultProjectPath,
 		});
 		await writeRuntimeProjectConfigFile(projectConfigPath, { shortcuts: config.shortcuts });
 		return createRuntimeConfigStateFromValues({
@@ -547,6 +599,7 @@ export async function saveRuntimeConfig(
 			shortcuts: config.shortcuts,
 			commitPromptTemplate: config.commitPromptTemplate,
 			openPrPromptTemplate: config.openPrPromptTemplate,
+			defaultProjectPath: config.defaultProjectPath,
 		});
 	});
 }
@@ -568,6 +621,8 @@ export async function updateRuntimeConfig(cwd: string, updates: RuntimeConfigUpd
 			shortcuts: projectConfigPath ? (updates.shortcuts ?? current.shortcuts) : current.shortcuts,
 			commitPromptTemplate: updates.commitPromptTemplate ?? current.commitPromptTemplate,
 			openPrPromptTemplate: updates.openPrPromptTemplate ?? current.openPrPromptTemplate,
+			defaultProjectPath:
+				updates.defaultProjectPath === undefined ? current.defaultProjectPath : updates.defaultProjectPath,
 		};
 
 		const hasChanges =
@@ -577,6 +632,7 @@ export async function updateRuntimeConfig(cwd: string, updates: RuntimeConfigUpd
 			nextConfig.readyForReviewNotificationsEnabled !== current.readyForReviewNotificationsEnabled ||
 			nextConfig.commitPromptTemplate !== current.commitPromptTemplate ||
 			nextConfig.openPrPromptTemplate !== current.openPrPromptTemplate ||
+			nextConfig.defaultProjectPath !== current.defaultProjectPath ||
 			!areRuntimeProjectShortcutsEqual(nextConfig.shortcuts, current.shortcuts);
 
 		if (!hasChanges) {
@@ -590,6 +646,7 @@ export async function updateRuntimeConfig(cwd: string, updates: RuntimeConfigUpd
 			readyForReviewNotificationsEnabled: nextConfig.readyForReviewNotificationsEnabled,
 			commitPromptTemplate: nextConfig.commitPromptTemplate,
 			openPrPromptTemplate: nextConfig.openPrPromptTemplate,
+			defaultProjectPath: nextConfig.defaultProjectPath,
 		});
 		await writeRuntimeProjectConfigFile(projectConfigPath, {
 			shortcuts: nextConfig.shortcuts,
@@ -604,6 +661,7 @@ export async function updateRuntimeConfig(cwd: string, updates: RuntimeConfigUpd
 			shortcuts: nextConfig.shortcuts,
 			commitPromptTemplate: nextConfig.commitPromptTemplate,
 			openPrPromptTemplate: nextConfig.openPrPromptTemplate,
+			defaultProjectPath: nextConfig.defaultProjectPath,
 		});
 	});
 }
@@ -633,6 +691,8 @@ export async function updateGlobalRuntimeConfig(
 				shortcuts: current.shortcuts,
 				commitPromptTemplate: updates.commitPromptTemplate ?? current.commitPromptTemplate,
 				openPrPromptTemplate: updates.openPrPromptTemplate ?? current.openPrPromptTemplate,
+				defaultProjectPath:
+					updates.defaultProjectPath === undefined ? current.defaultProjectPath : updates.defaultProjectPath,
 			};
 
 			const hasChanges =
@@ -641,7 +701,8 @@ export async function updateGlobalRuntimeConfig(
 				nextConfig.agentAutonomousModeEnabled !== current.agentAutonomousModeEnabled ||
 				nextConfig.readyForReviewNotificationsEnabled !== current.readyForReviewNotificationsEnabled ||
 				nextConfig.commitPromptTemplate !== current.commitPromptTemplate ||
-				nextConfig.openPrPromptTemplate !== current.openPrPromptTemplate;
+				nextConfig.openPrPromptTemplate !== current.openPrPromptTemplate ||
+				nextConfig.defaultProjectPath !== current.defaultProjectPath;
 
 			if (!hasChanges) {
 				return current;
@@ -654,6 +715,7 @@ export async function updateGlobalRuntimeConfig(
 				readyForReviewNotificationsEnabled: nextConfig.readyForReviewNotificationsEnabled,
 				commitPromptTemplate: nextConfig.commitPromptTemplate,
 				openPrPromptTemplate: nextConfig.openPrPromptTemplate,
+				defaultProjectPath: nextConfig.defaultProjectPath,
 			});
 
 			return createRuntimeConfigStateFromValues({
@@ -666,6 +728,7 @@ export async function updateGlobalRuntimeConfig(
 				shortcuts: nextConfig.shortcuts,
 				commitPromptTemplate: nextConfig.commitPromptTemplate,
 				openPrPromptTemplate: nextConfig.openPrPromptTemplate,
+				defaultProjectPath: nextConfig.defaultProjectPath,
 			});
 		},
 	);

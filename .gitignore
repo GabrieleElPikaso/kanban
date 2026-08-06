@@ -25,3 +25,7 @@ packages/desktop/runtime-child.js
 packages/desktop/runtime-child-env.js
 packages/desktop/desktop-preflight.js
 packages/desktop/cli
+
+# Local server launch logs (written by detached dev launches)
+/kanban-launch.stdout.log
+/kanban-launch.stderr.log

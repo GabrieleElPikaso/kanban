@@ -1,4 +1,4 @@
-import type { RuntimeConfigState } from "../config/runtime-config";
+import { DEFAULT_DEFAULT_PROJECT_PATH, type RuntimeConfigState } from "../config/runtime-config";
 import { getRuntimeLaunchSupportedAgentCatalog, RUNTIME_AGENT_CATALOG } from "../core/agent-catalog";
 import type {
 	RuntimeAgentDefinition,
@@ -124,5 +124,6 @@ export function buildRuntimeConfigResponse(
 		openPrPromptTemplate: runtimeConfig.openPrPromptTemplate,
 		commitPromptTemplateDefault: runtimeConfig.commitPromptTemplateDefault,
 		openPrPromptTemplateDefault: runtimeConfig.openPrPromptTemplateDefault,
+		defaultProjectPath: runtimeConfig.defaultProjectPath ?? DEFAULT_DEFAULT_PROJECT_PATH,
 	};
 }

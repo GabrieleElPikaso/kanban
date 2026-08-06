@@ -187,6 +187,7 @@ const savedClineOauthConfig = {
 	openPrPromptTemplateDefault: "",
 	globalConfigPath: null,
 	projectConfigPath: null,
+	defaultProjectPath: null,
 	agents: [
 		{
 			id: "cline",

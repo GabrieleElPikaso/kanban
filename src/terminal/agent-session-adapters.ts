@@ -1161,6 +1161,10 @@ const opencodeAdapter: AgentSessionAdapter = {
 			}
 		}
 
+		if (input.autonomousModeEnabled && !hasCliOption(args, "--auto")) {
+			args.push("--auto");
+		}
+
 		const hooks = resolveHookContext(input);
 		if (hooks) {
 			const pluginPath = join(getHookAgentDirectory("opencode"), "kanban.js");

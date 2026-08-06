@@ -59,6 +59,7 @@ function createRuntimeConfigResponse(
 		openPrPromptTemplate: "",
 		commitPromptTemplateDefault: "",
 		openPrPromptTemplateDefault: "",
+		defaultProjectPath: null,
 	};
 	return {
 		...nextConfig,

@@ -1,4 +1,8 @@
-import { type RuntimeConfigState, toGlobalRuntimeConfigState } from "../config/runtime-config";
+import {
+	DEFAULT_DEFAULT_PROJECT_PATH,
+	type RuntimeConfigState,
+	toGlobalRuntimeConfigState,
+} from "../config/runtime-config";
 import type {
 	RuntimeBoardColumnId,
 	RuntimeBoardData,
@@ -11,6 +15,7 @@ import {
 	loadWorkspaceBoardById,
 	loadWorkspaceContext,
 	loadWorkspaceState,
+	type RuntimeWorkspaceContext,
 	type RuntimeWorkspaceIndexEntry,
 	removeWorkspaceIndexEntry,
 	removeWorkspaceStateFiles,
@@ -185,8 +190,20 @@ function toProjectSummary(project: {
 }
 
 export async function createWorkspaceRegistry(deps: CreateWorkspaceRegistryDependencies): Promise<WorkspaceRegistry> {
-	const launchedFromGitRepo = deps.hasGitRepository(deps.cwd);
-	const initialWorkspace = launchedFromGitRepo ? await loadWorkspaceContext(deps.cwd) : null;
+	let globalRuntimeConfig = await deps.loadGlobalRuntimeConfig();
+	const configuredDefaultProjectPath = globalRuntimeConfig.defaultProjectPath ?? DEFAULT_DEFAULT_PROJECT_PATH;
+	let initialWorkspace: RuntimeWorkspaceContext | null = null;
+	if (configuredDefaultProjectPath) {
+		try {
+			initialWorkspace = await loadWorkspaceContext(configuredDefaultProjectPath);
+		} catch {
+			initialWorkspace = null;
+		}
+	}
+	if (!initialWorkspace) {
+		const launchedFromGitRepo = deps.hasGitRepository(deps.cwd);
+		initialWorkspace = launchedFromGitRepo ? await loadWorkspaceContext(deps.cwd) : null;
+	}
 	let indexedWorkspace: RuntimeWorkspaceIndexEntry | null = null;
 	if (!initialWorkspace) {
 		const indexedWorkspaces = await listWorkspaceIndexEntries();
@@ -195,7 +212,6 @@ export async function createWorkspaceRegistry(deps: CreateWorkspaceRegistryDepen
 
 	let activeWorkspaceId: string | null = initialWorkspace?.workspaceId ?? indexedWorkspace?.workspaceId ?? null;
 	let activeWorkspacePath: string | null = initialWorkspace?.repoPath ?? indexedWorkspace?.repoPath ?? null;
-	let globalRuntimeConfig = await deps.loadGlobalRuntimeConfig();
 	let activeRuntimeConfig = activeWorkspacePath
 		? await deps.loadRuntimeConfig(activeWorkspacePath)
 		: globalRuntimeConfig;

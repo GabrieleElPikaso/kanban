@@ -4,6 +4,9 @@ import { delimiter, join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+	DEFAULT_DEFAULT_PROJECT_PATH,
+	LEGACY_DEFAULT_COMMIT_PROMPT_TEMPLATE,
+	LEGACY_DEFAULT_OPEN_PR_PROMPT_TEMPLATE,
 	loadGlobalRuntimeConfig,
 	loadRuntimeConfig,
 	pickBestInstalledAgentIdFromDetected,
@@ -144,7 +147,7 @@ describe.sequential("runtime-config auto agent selection", () => {
 				process.env.SHELL = "/definitely-not-a-shell";
 				await withTemporaryEnv({ home: tempHome, pathPrefix: tempBin, replacePath: true }, async () => {
 					const state = await loadRuntimeConfig(tempProject);
-					expect(state.selectedAgentId).toBe("cline");
+					expect(state.selectedAgentId).toBe("opencode");
 					expect(existsSync(join(tempHome, ".cline", "kanban", "config.json"))).toBe(false);
 				});
 			} finally {
@@ -231,7 +234,7 @@ describe.sequential("runtime-config auto agent selection", () => {
 
 			await withTemporaryEnv({ home: tempHome, pathPrefix: tempBin }, async () => {
 				const state = await loadRuntimeConfig(tempProject);
-				expect(state.selectedAgentId).toBe("cline");
+				expect(state.selectedAgentId).toBe("opencode");
 			});
 		} finally {
 			cleanupBin();
@@ -264,7 +267,7 @@ describe.sequential("runtime-config auto agent selection", () => {
 
 			await withTemporaryEnv({ home: tempHome, pathPrefix: tempBin }, async () => {
 				const state = await loadRuntimeConfig(tempProject);
-				expect(state.selectedAgentId).toBe("cline");
+				expect(state.selectedAgentId).toBe("opencode");
 			});
 		} finally {
 			cleanupBin();
@@ -285,15 +288,15 @@ describe.sequential("runtime-config auto agent selection", () => {
 			writeFileSync(join(runtimeConfigDir, "config.json"), "{}", "utf8");
 
 			await withTemporaryEnv({ home: tempHome }, async () => {
-				const current = await loadRuntimeConfig(tempProject);
 				await saveRuntimeConfig(tempProject, {
-					selectedAgentId: "cline",
+					selectedAgentId: "opencode",
 					selectedShortcutLabel: null,
 					agentAutonomousModeEnabled: true,
 					readyForReviewNotificationsEnabled: true,
 					shortcuts: [],
-					commitPromptTemplate: current.commitPromptTemplateDefault,
-					openPrPromptTemplate: current.openPrPromptTemplateDefault,
+					commitPromptTemplate: "",
+					openPrPromptTemplate: "",
+					defaultProjectPath: null,
 				});
 
 				const globalPayload = JSON.parse(
@@ -330,15 +333,15 @@ describe.sequential("runtime-config auto agent selection", () => {
 			writeFileSync(join(runtimeProjectConfigDir, "config.json"), "{}", "utf8");
 
 			await withTemporaryEnv({ home: tempHome }, async () => {
-				const current = await loadRuntimeConfig(tempProject);
 				await saveRuntimeConfig(tempProject, {
-					selectedAgentId: "cline",
+					selectedAgentId: "opencode",
 					selectedShortcutLabel: null,
 					agentAutonomousModeEnabled: true,
 					readyForReviewNotificationsEnabled: true,
 					shortcuts: [],
-					commitPromptTemplate: current.commitPromptTemplateDefault,
-					openPrPromptTemplate: current.openPrPromptTemplateDefault,
+					commitPromptTemplate: "",
+					openPrPromptTemplate: "",
+					defaultProjectPath: null,
 				});
 
 				expect(existsSync(join(tempProject, ".cline", "kanban", "config.json"))).toBe(false);
@@ -357,15 +360,15 @@ describe.sequential("runtime-config auto agent selection", () => {
 
 		try {
 			await withTemporaryEnv({ home: tempHome }, async () => {
-				const current = await loadRuntimeConfig(tempProject);
 				await saveRuntimeConfig(tempProject, {
-					selectedAgentId: "cline",
+					selectedAgentId: "opencode",
 					selectedShortcutLabel: null,
 					agentAutonomousModeEnabled: true,
 					readyForReviewNotificationsEnabled: true,
 					shortcuts: [{ label: "Ship", command: "npm run ship", icon: "rocket" }],
-					commitPromptTemplate: current.commitPromptTemplateDefault,
-					openPrPromptTemplate: current.openPrPromptTemplateDefault,
+					commitPromptTemplate: "",
+					openPrPromptTemplate: "",
+					defaultProjectPath: null,
 				});
 				expect(existsSync(join(tempProject, ".cline", "kanban", "config.json"))).toBe(true);
 
@@ -374,6 +377,146 @@ describe.sequential("runtime-config auto agent selection", () => {
 				});
 
 				expect(existsSync(join(tempProject, ".cline", "kanban", "config.json"))).toBe(false);
+			});
+		} finally {
+			cleanupProject();
+			cleanupHome();
+		}
+	});
+
+	it("migrates legacy default prompt templates to empty defaults", async () => {
+		const { path: tempHome, cleanup: cleanupHome } = createTempDir("kanban-home-runtime-config-legacy-prompts-");
+		const { path: tempProject, cleanup: cleanupProject } = createTempDir(
+			"kanban-project-runtime-config-legacy-prompts-",
+		);
+
+		try {
+			const runtimeConfigDir = join(tempHome, ".cline", "kanban");
+			mkdirSync(runtimeConfigDir, { recursive: true });
+			writeFileSync(
+				join(runtimeConfigDir, "config.json"),
+				JSON.stringify(
+					{
+						commitPromptTemplate: LEGACY_DEFAULT_COMMIT_PROMPT_TEMPLATE,
+						openPrPromptTemplate: LEGACY_DEFAULT_OPEN_PR_PROMPT_TEMPLATE,
+					},
+					null,
+					2,
+				),
+				"utf8",
+			);
+
+			await withTemporaryEnv({ home: tempHome }, async () => {
+				const state = await loadRuntimeConfig(tempProject);
+				expect(state.commitPromptTemplate).toBe("");
+				expect(state.openPrPromptTemplate).toBe("");
+				expect(state.commitPromptTemplateDefault).toBe("");
+				expect(state.openPrPromptTemplateDefault).toBe("");
+			});
+		} finally {
+			cleanupProject();
+			cleanupHome();
+		}
+	});
+
+	it("preserves custom prompt templates that differ from the legacy default", async () => {
+		const { path: tempHome, cleanup: cleanupHome } = createTempDir("kanban-home-runtime-config-custom-prompts-");
+		const { path: tempProject, cleanup: cleanupProject } = createTempDir(
+			"kanban-project-runtime-config-custom-prompts-",
+		);
+		const customCommitTemplate = `${LEGACY_DEFAULT_COMMIT_PROMPT_TEMPLATE}\n\nExtra user instruction.`;
+
+		try {
+			const runtimeConfigDir = join(tempHome, ".cline", "kanban");
+			mkdirSync(runtimeConfigDir, { recursive: true });
+			writeFileSync(
+				join(runtimeConfigDir, "config.json"),
+				JSON.stringify(
+					{
+						commitPromptTemplate: customCommitTemplate,
+					},
+					null,
+					2,
+				),
+				"utf8",
+			);
+
+			await withTemporaryEnv({ home: tempHome }, async () => {
+				const state = await loadRuntimeConfig(tempProject);
+				expect(state.commitPromptTemplate).toBe(customCommitTemplate);
+				expect(state.openPrPromptTemplate).toBe("");
+			});
+		} finally {
+			cleanupProject();
+			cleanupHome();
+		}
+	});
+
+	it("persists defaultProjectPath on save and reloads it", async () => {
+		const { path: tempHome, cleanup: cleanupHome } = createTempDir("kanban-home-runtime-config-project-path-");
+		const { path: tempProject, cleanup: cleanupProject } = createTempDir(
+			"kanban-project-runtime-config-project-path-",
+		);
+
+		try {
+			await withTemporaryEnv({ home: tempHome }, async () => {
+				const saved = await saveRuntimeConfig(tempProject, {
+					selectedAgentId: "opencode",
+					selectedShortcutLabel: null,
+					agentAutonomousModeEnabled: true,
+					readyForReviewNotificationsEnabled: true,
+					shortcuts: [],
+					commitPromptTemplate: "",
+					openPrPromptTemplate: "",
+					defaultProjectPath: DEFAULT_DEFAULT_PROJECT_PATH,
+				});
+				expect(saved.defaultProjectPath).toBe(DEFAULT_DEFAULT_PROJECT_PATH);
+
+				const globalPayload = JSON.parse(
+					readFileSync(join(tempHome, ".cline", "kanban", "config.json"), "utf8"),
+				) as {
+					defaultProjectPath?: string;
+				};
+				expect(globalPayload.defaultProjectPath).toBe(DEFAULT_DEFAULT_PROJECT_PATH);
+
+				const reloaded = await loadRuntimeConfig(tempProject);
+				expect(reloaded.defaultProjectPath).toBe(DEFAULT_DEFAULT_PROJECT_PATH);
+			});
+		} finally {
+			cleanupProject();
+			cleanupHome();
+		}
+	});
+
+	it("normalizes defaultProjectPath on load and clears it via update", async () => {
+		const { path: tempHome, cleanup: cleanupHome } = createTempDir("kanban-home-runtime-config-project-path-clear-");
+		const { path: tempProject, cleanup: cleanupProject } = createTempDir(
+			"kanban-project-runtime-config-project-path-clear-",
+		);
+
+		try {
+			const runtimeConfigDir = join(tempHome, ".cline", "kanban");
+			mkdirSync(runtimeConfigDir, { recursive: true });
+			writeFileSync(
+				join(runtimeConfigDir, "config.json"),
+				JSON.stringify(
+					{
+						defaultProjectPath: `  ${DEFAULT_DEFAULT_PROJECT_PATH}  `,
+					},
+					null,
+					2,
+				),
+				"utf8",
+			);
+
+			await withTemporaryEnv({ home: tempHome }, async () => {
+				const loaded = await loadRuntimeConfig(tempProject);
+				expect(loaded.defaultProjectPath).toBe(DEFAULT_DEFAULT_PROJECT_PATH);
+
+				const updated = await updateRuntimeConfig(tempProject, {
+					defaultProjectPath: null,
+				});
+				expect(updated.defaultProjectPath).toBeNull();
 			});
 		} finally {
 			cleanupProject();

@@ -8,7 +8,7 @@ vi.mock("../../../src/terminal/command-discovery.js", () => ({
 	isBinaryAvailableOnPath: commandDiscoveryMocks.isBinaryAvailableOnPath,
 }));
 
-import type { RuntimeConfigState } from "../../../src/config/runtime-config";
+import { DEFAULT_DEFAULT_PROJECT_PATH, type RuntimeConfigState } from "../../../src/config/runtime-config";
 import {
 	buildRuntimeConfigResponse,
 	detectInstalledCommands,
@@ -28,6 +28,7 @@ function createRuntimeConfigState(overrides: Partial<RuntimeConfigState> = {}): 
 		openPrPromptTemplate: "pr",
 		commitPromptTemplateDefault: "commit",
 		openPrPromptTemplateDefault: "pr",
+		defaultProjectPath: null,
 		...overrides,
 	};
 }
@@ -78,6 +79,7 @@ describe("buildRuntimeConfigResponse", () => {
 		});
 
 		expect(response.agentAutonomousModeEnabled).toBe(true);
+		expect(response.defaultProjectPath).toBe(DEFAULT_DEFAULT_PROJECT_PATH);
 		expect(response.agents.map((agent) => agent.id)).toEqual([
 			"claude",
 			"codex",
@@ -97,6 +99,7 @@ describe("buildRuntimeConfigResponse", () => {
 	it("omits autonomous flags from curated agent commands when disabled", () => {
 		const config = createRuntimeConfigState({
 			agentAutonomousModeEnabled: false,
+			defaultProjectPath: "D:/custom/project",
 		});
 		commandDiscoveryMocks.isBinaryAvailableOnPath.mockImplementation((binary: string) => binary === "claude");
 
@@ -113,6 +116,7 @@ describe("buildRuntimeConfigResponse", () => {
 		});
 
 		expect(response.agentAutonomousModeEnabled).toBe(false);
+		expect(response.defaultProjectPath).toBe("D:/custom/project");
 		expect(response.agents.map((agent) => agent.id)).toEqual([
 			"claude",
 			"codex",
