@@ -196,6 +196,93 @@ describe("TerminalSessionManager auto-restart", () => {
 		expect(session.write).toHaveBeenCalledTimes(1);
 	});
 
+	it("retries deferred Codex startup input after the retry window when the UI marker never appears", async () => {
+		vi.useFakeTimers();
+		const deferredStartupInput = "\u001b[200~/plan Validate retry fallback\u001b[201~\r";
+		prepareAgentLaunchMock.mockResolvedValue({
+			binary: "codex",
+			args: [],
+			env: {},
+			deferredStartupInput,
+		});
+
+		const spawnedSessions: Array<ReturnType<typeof createMockPtySession>> = [];
+		ptySessionSpawnMock.mockImplementation((request: MockSpawnRequest) => {
+			const session = createMockPtySession(111, request);
+			spawnedSessions.push(session);
+			return session;
+		});
+
+		const manager = new TerminalSessionManager();
+		await manager.startTaskSession({
+			taskId: "task-1",
+			agentId: "codex",
+			binary: "codex",
+			args: [],
+			cwd: "/tmp/task-1",
+			prompt: "Fix the bug",
+			startInPlanMode: true,
+		});
+
+		const session = spawnedSessions[0];
+		expect(session).toBeDefined();
+		if (!session) {
+			vi.useRealTimers();
+			return;
+		}
+
+		session.triggerData("Booting Codex\n");
+		expect(session.write).not.toHaveBeenCalledWith(deferredStartupInput);
+
+		await vi.advanceTimersByTimeAsync(8_000);
+		expect(session.write).toHaveBeenCalledWith(deferredStartupInput);
+		expect(session.write).toHaveBeenCalledTimes(1);
+		vi.useRealTimers();
+	});
+
+	it("does not retry deferred Codex startup input once it was already sent", async () => {
+		vi.useFakeTimers();
+		const deferredStartupInput = "\u001b[200~/plan Validate no double send\u001b[201~\r";
+		prepareAgentLaunchMock.mockResolvedValue({
+			binary: "codex",
+			args: [],
+			env: {},
+			deferredStartupInput,
+		});
+
+		const spawnedSessions: Array<ReturnType<typeof createMockPtySession>> = [];
+		ptySessionSpawnMock.mockImplementation((request: MockSpawnRequest) => {
+			const session = createMockPtySession(111, request);
+			spawnedSessions.push(session);
+			return session;
+		});
+
+		const manager = new TerminalSessionManager();
+		await manager.startTaskSession({
+			taskId: "task-1",
+			agentId: "codex",
+			binary: "codex",
+			args: [],
+			cwd: "/tmp/task-1",
+			prompt: "Fix the bug",
+			startInPlanMode: true,
+		});
+
+		const session = spawnedSessions[0];
+		expect(session).toBeDefined();
+		if (!session) {
+			vi.useRealTimers();
+			return;
+		}
+
+		session.triggerData("› ");
+		expect(session.write).toHaveBeenCalledWith(deferredStartupInput);
+
+		await vi.advanceTimersByTimeAsync(8_000);
+		expect(session.write).toHaveBeenCalledTimes(1);
+		vi.useRealTimers();
+	});
+
 	it("auto-restarts up to MAX_AUTO_RESTARTS_PER_WINDOW times, then refuses the next exit in the same window", async () => {
 		const spawnedSessions: Array<ReturnType<typeof createMockPtySession>> = [];
 		ptySessionSpawnMock.mockImplementation((request: MockSpawnRequest) => {

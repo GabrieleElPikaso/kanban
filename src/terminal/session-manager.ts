@@ -37,6 +37,7 @@ import { TerminalStateMirror } from "./terminal-state-mirror";
 const MAX_WORKSPACE_TRUST_BUFFER_CHARS = 16_384;
 const AUTO_RESTART_WINDOW_MS = 5_000;
 const MAX_AUTO_RESTARTS_PER_WINDOW = 3;
+const CODEX_DEFERRED_STARTUP_RETRY_MS = 8_000;
 // TUI apps (Codex, OpenCode) can query OSC 10/11 before the browser terminal is attached
 // and ready to answer. We intercept those startup probes during early PTY output, synthesize
 // foreground/background color replies, then disable the filter once a live terminal listener
@@ -56,6 +57,7 @@ interface ActiveProcessState {
 	terminalProtocolFilter: TerminalProtocolFilterState;
 	onSessionCleanup: (() => Promise<void>) | null;
 	deferredStartupInput: string | null;
+	deferredStartupInputRetryTimer: NodeJS.Timeout | null;
 	detectOutputTransition: AgentOutputTransitionDetector | null;
 	shouldInspectOutputForTransition: AgentOutputTransitionInspectionPredicate | null;
 	awaitingCodexPromptAfterEnter: boolean;
@@ -141,6 +143,14 @@ function updateSummary(entry: SessionEntry, patch: Partial<RuntimeTaskSessionSum
 	return entry.summary;
 }
 
+function stopActiveProcessTimers(state: ActiveProcessState): void {
+	stopWorkspaceTrustTimers(state);
+	if (state.deferredStartupInputRetryTimer !== null) {
+		clearTimeout(state.deferredStartupInputRetryTimer);
+		state.deferredStartupInputRetryTimer = null;
+	}
+}
+
 function isActiveState(state: RuntimeTaskSessionState): boolean {
 	return state === "running" || state === "awaiting_review";
 }
@@ -220,10 +230,32 @@ export class TerminalSessionManager implements TerminalSessionService {
 		if (trustPromptVisible) {
 			return false;
 		}
+		if (active.deferredStartupInputRetryTimer !== null) {
+			clearTimeout(active.deferredStartupInputRetryTimer);
+			active.deferredStartupInputRetryTimer = null;
+		}
 		const deferredInput = active.deferredStartupInput;
 		active.deferredStartupInput = null;
 		active.session.write(deferredInput);
 		return true;
+	}
+
+	private scheduleDeferredCodexStartupInputRetry(taskId: string): void {
+		const active = this.entries.get(taskId)?.active;
+		if (!active || active.deferredStartupInput === null) {
+			return;
+		}
+		if (active.deferredStartupInputRetryTimer !== null) {
+			return;
+		}
+		active.deferredStartupInputRetryTimer = setTimeout(() => {
+			const currentActive = this.entries.get(taskId)?.active;
+			if (!currentActive || currentActive.deferredStartupInputRetryTimer === null) {
+				return;
+			}
+			currentActive.deferredStartupInputRetryTimer = null;
+			this.trySendDeferredCodexStartupInput(taskId);
+		}, CODEX_DEFERRED_STARTUP_RETRY_MS);
 	}
 
 	private hasLiveOutputListener(entry: SessionEntry): boolean {
@@ -303,7 +335,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 		}
 
 		if (entry.active) {
-			stopWorkspaceTrustTimers(entry.active);
+			stopActiveProcessTimers(entry.active);
 			entry.active.session.stop();
 			entry.active = null;
 		}
@@ -451,7 +483,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 					if (!currentActive) {
 						return;
 					}
-					stopWorkspaceTrustTimers(currentActive);
+					stopActiveProcessTimers(currentActive);
 
 					const summary = this.applySessionEvent(currentEntry, {
 						type: "process.exit",
@@ -520,6 +552,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 			}),
 			onSessionCleanup: launch.cleanup ?? null,
 			deferredStartupInput: launch.deferredStartupInput ?? null,
+			deferredStartupInputRetryTimer: null,
 			detectOutputTransition: launch.detectOutputTransition ?? null,
 			shouldInspectOutputForTransition: launch.shouldInspectOutputForTransition ?? null,
 			awaitingCodexPromptAfterEnter: false,
@@ -528,6 +561,8 @@ export class TerminalSessionManager implements TerminalSessionService {
 		};
 		entry.active = active;
 		entry.terminalStateMirror = terminalStateMirror;
+
+		this.scheduleDeferredCodexStartupInputRetry(request.taskId);
 
 		const startedAt = now();
 		updateSummary(entry, {
@@ -561,7 +596,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 		}
 
 		if (entry.active) {
-			stopWorkspaceTrustTimers(entry.active);
+			stopActiveProcessTimers(entry.active);
 			entry.active.session.stop();
 			entry.active = null;
 		}
@@ -626,7 +661,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 					if (!currentActive) {
 						return;
 					}
-					stopWorkspaceTrustTimers(currentActive);
+					stopActiveProcessTimers(currentActive);
 
 					const summary = updateSummary(currentEntry, {
 						state: currentActive.session.wasInterrupted() ? "interrupted" : "idle",
@@ -673,6 +708,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 			}),
 			onSessionCleanup: null,
 			deferredStartupInput: null,
+			deferredStartupInputRetryTimer: null,
 			detectOutputTransition: null,
 			shouldInspectOutputForTransition: null,
 			awaitingCodexPromptAfterEnter: false,
@@ -921,7 +957,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 		entry.suppressAutoRestartOnExit = true;
 		const cleanupFn = entry.active.onSessionCleanup;
 		entry.active.onSessionCleanup = null;
-		stopWorkspaceTrustTimers(entry.active);
+		stopActiveProcessTimers(entry.active);
 		entry.active.session.stop();
 		if (cleanupFn) {
 			cleanupFn().catch(() => {
@@ -937,7 +973,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 			if (!entry.active) {
 				continue;
 			}
-			stopWorkspaceTrustTimers(entry.active);
+			stopActiveProcessTimers(entry.active);
 			entry.active.session.stop({ interrupted: true });
 		}
 		return activeEntries.map((entry) => cloneSummary(entry.summary));
