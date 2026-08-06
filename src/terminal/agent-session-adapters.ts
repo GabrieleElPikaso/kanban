@@ -919,6 +919,18 @@ function hasOpenCodeAgentArg(args: string[]): boolean {
 	return false;
 }
 
+function hasOpenCodeVariantArg(args: string[]): boolean {
+	for (const arg of args) {
+		if (arg === "--variant") {
+			return true;
+		}
+		if (arg.startsWith("--variant=")) {
+			return true;
+		}
+	}
+	return false;
+}
+
 function normalizeOpenCodeModel(providerId: string, modelId: string): string {
 	if (modelId.startsWith(`${providerId}/`)) {
 		return modelId;
@@ -1109,6 +1121,30 @@ async function resolveOpenCodePreferredModelArg(configPath: string | null): Prom
 	return candidates[0].model;
 }
 
+async function resolveOpenCodePreferredVariantArg(preferredModel: string | null): Promise<string | null> {
+	if (!preferredModel) {
+		return null;
+	}
+
+	for (const modelStatePath of getOpenCodeModelStatePathCandidates()) {
+		try {
+			const raw = await readFile(modelStatePath, "utf8");
+			const parsed = JSON.parse(raw) as { variant?: Record<string, unknown> };
+			if (!parsed.variant || typeof parsed.variant !== "object" || Array.isArray(parsed.variant)) {
+				continue;
+			}
+			const variant = parsed.variant[preferredModel];
+			if (typeof variant === "string" && variant.trim()) {
+				return variant.trim();
+			}
+		} catch {
+			// Keep searching through candidate state paths.
+		}
+	}
+
+	return null;
+}
+
 const opencodeAdapter: AgentSessionAdapter = {
 	async prepare(input) {
 		const args = [...input.args];
@@ -1157,6 +1193,16 @@ const opencodeAdapter: AgentSessionAdapter = {
 			const preferredModel = await resolveOpenCodePreferredModelArg(baseConfigPath);
 			if (preferredModel) {
 				args.push("--model", preferredModel);
+			}
+		}
+
+		// Mirror the user's preferred model variant (reasoning effort, e.g. max) from
+		// OpenCode's model state so board launches keep the same effort as the TUI.
+		if (!hasOpenCodeVariantArg(args)) {
+			const preferredModel = await resolveOpenCodePreferredModelArg(baseConfigPath);
+			const preferredVariant = await resolveOpenCodePreferredVariantArg(preferredModel);
+			if (preferredVariant) {
+				args.push("--variant", preferredVariant);
 			}
 		}
 
