@@ -418,13 +418,17 @@ export function BoardCard({
 			? reconstructTaskWorktreeDisplayPath(card.id, workspacePath)
 			: null;
 	const reviewRefLabel = reviewWorkspaceSnapshot?.branch ?? reviewWorkspaceSnapshot?.headCommit?.slice(0, 8) ?? "HEAD";
+	const reviewChangedFileCount = reviewWorkspaceSnapshot
+		? (reviewWorkspaceSnapshot.changedFiles ??
+			(reviewWorkspaceSnapshot.additions ?? 0) + (reviewWorkspaceSnapshot.deletions ?? 0))
+		: 0;
 	const reviewChangeSummary = reviewWorkspaceSnapshot
 		? reviewWorkspaceSnapshot.changedFiles == null &&
-		  reviewWorkspaceSnapshot.additions == null &&
-		  reviewWorkspaceSnapshot.deletions == null
+			reviewWorkspaceSnapshot.additions == null &&
+			reviewWorkspaceSnapshot.deletions == null
 			? null
 			: {
-					filesLabel: `${reviewWorkspaceSnapshot.changedFiles ?? reviewWorkspaceSnapshot.additions + reviewWorkspaceSnapshot.deletions} ${(reviewWorkspaceSnapshot.changedFiles ?? reviewWorkspaceSnapshot.additions + reviewWorkspaceSnapshot.deletions) === 1 ? "file" : "files"}`,
+					filesLabel: `${reviewChangedFileCount} ${reviewChangedFileCount === 1 ? "file" : "files"}`,
 					additions: reviewWorkspaceSnapshot.additions ?? 0,
 					deletions: reviewWorkspaceSnapshot.deletions ?? 0,
 				}

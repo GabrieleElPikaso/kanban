@@ -497,13 +497,7 @@ function SplitDiff({
 				<div className="kb-diff-split-grid-background-column" />
 				<div className="kb-diff-split-grid-background-column kb-diff-split-grid-background-column-right" />
 			</div>
-			{workspaceFiles && workspaceFiles.length === 0 ? (
-				<div className="p-4 text-sm text-text-secondary">
-					No changes yet. The changes tab will populate after the task makes progress.
-				</div>
-			) : (
-				<div className="kb-diff-split-grid-content">{renderDisplayItems()}</div>
-			)}
+			<div className="kb-diff-split-grid-content">{renderDisplayItems()}</div>
 		</div>
 	);
 }
@@ -826,6 +820,9 @@ export function DiffViewerPanel({
 							<rect x="3" y="3" width="8" height="18" rx="1" />
 							<rect x="13" y="3" width="8" height="18" rx="1" />
 						</svg>
+						<div className="text-sm text-text-secondary">
+							No changes yet. The changes tab will populate after the task makes progress.
+						</div>
 					</div>
 				</div>
 			) : (
